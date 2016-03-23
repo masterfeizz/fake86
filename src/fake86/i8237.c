@@ -23,7 +23,7 @@
 #include "config.h"
 #include <stdint.h>
 #include <stdio.h>
-#include <memory.h>
+//#include <memory.h>
 #include "blaster.h"
 #include "i8237.h"
 

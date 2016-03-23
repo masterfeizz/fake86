@@ -23,7 +23,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
-#include <memory.h>
+//#include <memory.h>
 #include "i8253.h"
 #include "mutex.h"
 

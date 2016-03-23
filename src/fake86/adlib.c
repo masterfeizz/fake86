@@ -20,7 +20,7 @@
 /* adlib.c: very ugly Adlib OPL2 emulation for Fake86. very much a work in progress. :) */
 
 #include "config.h"
-#include <SDL/SDL.h>
+// #include <SDL/SDL.h>
 #include <stdint.h>
 #include <stdio.h>
 
@@ -188,7 +188,8 @@ uint64_t fullstep, adlibstep[9];
 double adlibenv[9], adlibdecay[9], adlibattack[9];
 uint8_t adlibdidattack[9];
 
-extern SDL_AudioSpec wanted;
+//extern SDL_AudioSpec wanted;
+
 int32_t adlibsample (uint8_t curchan) {
 	int32_t tempsample;
 	double tempstep;

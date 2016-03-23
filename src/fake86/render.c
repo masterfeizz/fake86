@@ -21,19 +21,20 @@
    it is a bit messy. i plan to rework much of this in the future. i am also
    going to add hardware accelerated scaling soon. */
 
-#include <SDL/SDL.h>
 #include <stdint.h>
 #include <stdio.h>
 #include "mutex.h"
+#include <3ds.h>
+
+#define STACKSIZE (8 * 1024)
 
 #ifdef _WIN32
 CRITICAL_SECTION screenmutex;
 #else
-pthread_t vidthread;
-pthread_mutex_t screenmutex = PTHREAD_MUTEX_INITIALIZER;
+Thread vidthread;
+Handle screenmutex;
 #endif
 
-SDL_Surface *screen = NULL;
 uint32_t *scalemap = NULL;
 uint8_t regenscalemap = 1;
 
@@ -56,24 +57,18 @@ void initcga();
 #ifdef _WIN32
 void VideoThread (void *dummy);
 #else
-void *VideoThread (void *dummy);
+void VideoThread (void *dummy);
 #endif
 
 void setwindowtitle (uint8_t *extra) {
 	char temptext[128];
 	sprintf (temptext, "%s%s", windowtitle, extra);
-	SDL_WM_SetCaption ( (const char *) temptext, NULL);
 }
 
+u8* fb;
+
 uint8_t initscreen (uint8_t *ver) {
-	if (doaudio) {
-			if (SDL_Init (SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER) ) return (0);
-		}
-	else {
-			if (SDL_Init (SDL_INIT_VIDEO | SDL_INIT_TIMER) ) return (0);
-		}
-	screen = SDL_SetVideoMode (640, 400, 32, SDL_HWSURFACE);
-	if (screen == NULL) return (0);
+	fb = gfxGetFramebuffer(GFX_TOP, GFX_LEFT, NULL, NULL);
 	sprintf (windowtitle, "%s", ver);
 	setwindowtitle ("");
 	initcga();
@@ -81,7 +76,9 @@ uint8_t initscreen (uint8_t *ver) {
 	InitializeCriticalSection (&screenmutex);
 	_beginthread (VideoThread, 0, NULL);
 #else
-	pthread_create (&vidthread, NULL, (void *) VideoThread, NULL);
+	s32 prio = 0;
+	svcGetThreadPriority(&prio, CUR_THREAD_HANDLE);
+	vidthread = threadCreate(VideoThread, NULL, STACKSIZE, 0x31, -2, false);
 #endif
 
 	return (1);
@@ -93,23 +90,25 @@ void createscalemap() {
 	uint32_t srcx, srcy, dstx, dsty, scalemapptr;
 	double xscale, yscale;
 
-	xscale = (double) nw / (double) screen->w;
-	yscale = (double) nh / (double) screen->h;
+	xscale = (double) nw / (double) 400;
+	yscale = (double) nh / (double) 240;
 	if (scalemap != NULL) free(scalemap);
-	scalemap = (void *)malloc( ((uint32_t)screen->w + 1) * (uint32_t)screen->h * 4);
+	scalemap = (void *)malloc( ((uint32_t)400 + 1) * (uint32_t)240 * 4);
+
 	if (scalemap == NULL) {
-			printf("\nFATAL: Unable to allocate memory for scalemap!\n");
-			exit(1);
-		}
+		printf("\nFATAL: Unable to allocate memory for scalemap!\n");
+		exit(1);
+	}
+
 	scalemapptr = 0;
-	for (dsty=0; dsty<(uint32_t)screen->h; dsty++) {
+	for (dstx=0; dstx<(uint32_t)400; dstx++) {
+		srcx = (uint32_t) ( (double) dstx * xscale);
+		scalemap[scalemapptr++] = srcx;
+		for (dsty=0; dsty<(uint32_t)240; dsty++) {
 			srcy = (uint32_t) ( (double) dsty * yscale);
 			scalemap[scalemapptr++] = srcy;
-			for (dstx=0; dstx<(uint32_t)screen->w; dstx++) {
-					srcx = (uint32_t) ( (double) dstx * xscale);
-					scalemap[scalemapptr++] = srcx;
-				}
 		}
+	}
 
 	regenscalemap = 0;
 }
@@ -120,14 +119,14 @@ extern void handleinput();
 #ifdef _WIN32
 void VideoThread (void *dummy) {
 #else
-void *VideoThread (void *dummy) {
+void VideoThread (void *dummy) {
 #endif
 	uint32_t cursorprevtick, cursorcurtick, delaycalc;
-	cursorprevtick = SDL_GetTicks();
+	cursorprevtick = osGetTime();
 	cursorvisible = 0;
 
 	while (running) {
-			cursorcurtick = SDL_GetTicks();
+			cursorcurtick = osGetTime();
 			if ( (cursorcurtick - cursorprevtick) >= 250) {
 					updatedscreen = 1;
 					cursorvisible = ~cursorvisible & 1;
@@ -136,19 +135,13 @@ void *VideoThread (void *dummy) {
 
 			if (updatedscreen || renderbenchmark) {
 					updatedscreen = 0;
-					if (screen != NULL) {
-							MutexLock (screenmutex);
+							//MutexLock (screenmutex);
 							if (regenscalemap) createscalemap();
 							draw();
-							MutexUnlock (screenmutex);
-						}
+							//MutexUnlock (screenmutex);
 					totalframes++;
 				}
-			if (!renderbenchmark) {
-					delaycalc = framedelay - (SDL_GetTicks() - cursorcurtick);
-					if (delaycalc > framedelay) delaycalc = framedelay;
-					SDL_Delay (delaycalc);
-				}
+			usleep(100000);
 		}
 }
 
@@ -158,33 +151,33 @@ void HideMenu();
 #endif
 
 void doscrmodechange() {
-	MutexLock (screenmutex);
+	//MutexLock (screenmutex);
 	if (scrmodechange) {
-			if (screen != NULL) SDL_FreeSurface (screen);
+			//if (screen != NULL) SDL_FreeSurface (screen);
 #ifdef _WIN32
 			if (usefullscreen) HideMenu(); else ShowMenu();
 #endif
-			if (constantw && constanth) screen = SDL_SetVideoMode (constantw, constanth, 32, SDL_HWSURFACE | usefullscreen);
-			else if (noscale) screen = SDL_SetVideoMode (nw, nh, 32, SDL_HWSURFACE | usefullscreen);
-			else {
-					if ( (nw >= 640) || (nh >= 400) ) screen = SDL_SetVideoMode (nw, nh, 32, SDL_HWSURFACE | usefullscreen);
-					else screen = SDL_SetVideoMode (640, 400, 32, SDL_HWSURFACE | usefullscreen);
-				}
-			if (usefullscreen) SDL_WM_GrabInput (SDL_GRAB_ON); //always have mouse grab turned on for full screen mode
-			else SDL_WM_GrabInput (usegrabmode);
-			SDL_ShowCursor (SDL_DISABLE);
-			if (!usefullscreen) {
-					if (usegrabmode == SDL_GRAB_ON) setwindowtitle (" (press Ctrl + Alt to release mouse)");
-					else setwindowtitle ("");
-				}
+			//if (constantw && constanth) screen = SDL_SetVideoMode (constantw, constanth, 32, SDL_HWSURFACE | usefullscreen);
+			//else if (noscale) screen = SDL_SetVideoMode (nw, nh, 32, SDL_HWSURFACE | usefullscreen);
+			//else {
+			//		if ( (nw >= 640) || (nh >= 400) ) screen = SDL_SetVideoMode (nw, nh, 32, SDL_HWSURFACE | usefullscreen);
+			//		else screen = SDL_SetVideoMode (640, 400, 32, SDL_HWSURFACE | usefullscreen);
+			//	}
+			//if (usefullscreen) SDL_WM_GrabInput (SDL_GRAB_ON); //always have mouse grab turned on for full screen mode
+			//else SDL_WM_GrabInput (usegrabmode);
+			//SDL_ShowCursor (SDL_DISABLE);
+			//if (!usefullscreen) {
+			//		if (usegrabmode == SDL_GRAB_ON) setwindowtitle (" (press Ctrl + Alt to release mouse)");
+			//		else setwindowtitle ("");
+			//	}
 			regenscalemap = 1;
 			createscalemap();
 		}
-	MutexUnlock (screenmutex);
+	//MutexUnlock (screenmutex);
 	scrmodechange = 0;
 }
 
-void stretchblit (SDL_Surface *target) {
+/*void stretchblit (SDL_Surface *target) {
 	uint32_t srcx, srcy, dstx, dsty, lastx, lasty, r, g, b;
 	uint32_t consecutivex, consecutivey = 0, limitx, limity, scalemapptr;
 	uint32_t ofs;
@@ -262,30 +255,25 @@ void stretchblit (SDL_Surface *target) {
 		SDL_UnlockSurface (target);
 	SDL_UpdateRect (target, 0, 0, target->w, target->h);
 }
-
-void roughblit (SDL_Surface *target) {
+*/
+void roughblit () {
 	uint32_t srcx, srcy, dstx, dsty, scalemapptr;
 	int32_t ofs;
 	uint8_t *pixelrgb;
 
-	if (SDL_MUSTLOCK (target) )
-		if (SDL_LockSurface (target) < 0)
-			return;
-
 	scalemapptr = 0;
-	for (dsty=0; dsty<(uint32_t)target->h; dsty++) {
-			srcy = scalemap[scalemapptr++];
-			ofs = dsty*target->w;
-			for (dstx=0; dstx<(uint32_t)target->w; dstx++) {
-					srcx = scalemap[scalemapptr++];
-					pixelrgb = (uint8_t *) &prestretch[srcy][srcx];
-					( (uint32_t *) target->pixels) [ofs++] = SDL_MapRGB (target->format, pixelrgb[0], pixelrgb[1], pixelrgb[2]);
-				}
-		}
 
-	if (SDL_MUSTLOCK (target) )
-		SDL_UnlockSurface (target);
-	SDL_UpdateRect (target, 0, 0, target->w, target->h);
+	for (dstx=0; dstx<400; dstx++) {
+		srcx = scalemap[scalemapptr++];
+		ofs = ((dstx * 240) + 239) * 3;
+		for (dsty=0; dsty<240; dsty++) {
+			srcy = scalemap[scalemapptr++];
+			pixelrgb = (uint8_t *) &prestretch[srcy][srcx];
+			fb[ofs--] = pixelrgb[2];
+			fb[ofs--] = pixelrgb[0];
+			fb[ofs--] = pixelrgb[1];
+		}
+	}
 }
 
 /* NOTE: doubleblit is only used when smoothing is not enabled, and the SDL window size
@@ -296,6 +284,7 @@ void roughblit (SDL_Surface *target) {
          difference between games being smooth and playable, and being jerky on my old
          400 MHz PowerPC G3 iMac.
 */
+/*
 void doubleblit (SDL_Surface *target) {
 	uint32_t srcx, srcy, dstx, dsty, curcolor;
 	int32_t ofs, startofs;
@@ -322,7 +311,7 @@ void doubleblit (SDL_Surface *target) {
 	if (SDL_MUSTLOCK (target) )
 		SDL_UnlockSurface (target);
 	SDL_UpdateRect (target, 0, 0, target->w, target->h);
-}
+}*/
 
 extern uint16_t vtotal;
 void draw () {
@@ -521,18 +510,17 @@ void draw () {
 						}
 				break;
 			case 0x13:
-				if (vtotal == 11) { //ugly hack to show Flashback at the proper resolution
+				/*if (vtotal == 11) { //ugly hack to show Flashback at the proper resolution
 						nw = 256;
 						nh = 224;
-					}
-				else {
+					}*/
+				//else {
 						nw = 320;
 						nh = 200;
-					}
+				//	}
 				if (VGA_SC[4] & 6) planemode = 1;
 				else planemode = 0;
-				//vgapage = ( (uint32_t) VGA_CRTC[0xC]<<8) + (uint32_t) VGA_CRTC[0xD];
-				vgapage = (( (uint32_t) VGA_CRTC[0xC]<<8) + (uint32_t) VGA_CRTC[0xD]) << 2;
+				vgapage = ( (uint32_t) VGA_CRTC[0xC]<<8) + (uint32_t) VGA_CRTC[0xD];
 				for (y=0; y<nh; y++)
 					for (x=0; x<nw; x++) {
 							if (!planemode) color = palettevga[RAM[videobase + ((vgapage + y*nw + x) & 0xFFFF) ]];
@@ -562,9 +550,9 @@ void draw () {
 				}
 		}
 	if (nosmooth) {
-			if ( ((nw << 1) == screen->w) && ((nh << 1) == screen->h) ) doubleblit (screen);
-			else roughblit (screen);
+			//if ( ((nw << 1) == 400) && ((nh << 1) == 320) )// doubleblit (screen);
+			
 		}
-	else stretchblit (screen);
+	roughblit ();
+	//else stretchblit (screen);
 }
-

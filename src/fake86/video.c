@@ -21,7 +21,7 @@
    a lot of this code is inefficient, and just plain ugly. i plan to rework
    large sections of it soon. */
 
-#include <SDL/SDL.h>
+//#include <SDL/SDL.h>
 #include <stdint.h>
 #include <stdio.h>
 #include "mutex.h"
@@ -30,7 +30,7 @@
 extern void set_port_write_redirector (uint16_t startport, uint16_t endport, void *callback);
 extern void set_port_read_redirector (uint16_t startport, uint16_t endport, void *callback);
 
-extern SDL_Surface *screen;
+//extern SDL_Surface *screen;
 extern uint8_t verbose;
 extern union _bytewordregs_ regs;
 extern uint8_t RAM[0x100000], readonly[0x100000];
@@ -48,7 +48,7 @@ uint16_t VGA_SC[0x100], VGA_CRTC[0x100], VGA_ATTR[0x100], VGA_GC[0x100];
 uint32_t videobase= 0xB8000, textbase = 0xB8000, x, y;
 uint8_t fontcga[32768];
 uint32_t palettecga[16], palettevga[256];
-uint32_t usefullscreen = 0, usegrabmode = SDL_GRAB_OFF;
+uint32_t usefullscreen = 0, usegrabmode = 1;
 
 uint8_t latchRGB = 0, latchPal = 0, VGA_latch[4], stateDAC = 0;
 uint8_t latchReadRGB = 0, latchReadPal = 0;
@@ -252,7 +252,7 @@ void vidinterrupt() {
 
 void initcga() {
 	FILE *fontfile;
-	fontfile = fopen (PATH_DATAFILES "asciivga.dat", "rb");
+	fontfile = fopen ("/3ds/fake86/data/asciivga.dat", "rb");
 	if (fontfile==NULL) {
 			printf ("FATAL: Cannot open " PATH_DATAFILES "asciivga!\n");
 			exit (1);

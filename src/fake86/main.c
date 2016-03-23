@@ -21,22 +21,14 @@
    load ROM binaries, and kickstart the CPU emulator. */
 
 #include "config.h"
-#ifdef __APPLE__      /* Memory leaks occur in OS X when the SDL window gets */
-#include <SDL/SDL.h>  /* resized if SDL.h not included in file with main() */
-#endif
+#include <3ds.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <memory.h>
+
 #include "mutex.h"
-#ifdef _WIN32
-CRITICAL_SECTION screenmutex;
-#else
-#ifndef __APPLE__
-#include <X11/Xlib.h>
-#endif
-pthread_t consolethread;
-#endif
+
+#define STACKSIZE (8 * 1024)
 
 const uint8_t *build = BUILD_STRING;
 
@@ -206,8 +198,8 @@ uint8_t audiobufferfilled();
 void initmenus();
 void EmuThread (void *dummy) {
 #else
-pthread_t emuthread;
-void *EmuThread (void *dummy) {
+Thread emuthread;
+void EmuThread (void *dummy) {
 #endif
 	while (running) {
 			if (!speed) exec86 (10000);
@@ -220,7 +212,7 @@ void *EmuThread (void *dummy) {
 #ifdef _WIN32
 				Sleep(10);
 #else
-				usleep(10000);
+				usleep(50);
 #endif
 			}
 			if (scrmodechange) doscrmodechange();
@@ -240,31 +232,44 @@ extern void bufsermousedata (uint8_t value);
 int main (int argc, char *argv[]) {
 	uint32_t biossize;
 
+	osSetSpeedupEnable(true);
+	gfxInitDefault();
+	gfxSetDoubleBuffering(GFX_TOP, false);
+	gfxSetDoubleBuffering(GFX_BOTTOM, false);
+	gfxSet3D(false);
+	consoleInit(GFX_BOTTOM, NULL);
+
+	printf ("[A portable, open-source 8086 PC emulator]\n\n");
+
+	char *args[64];
+	args[0] = "";
+	args[1] = "-hd0";
+	args[2] = "test.raw";
+	args[3] = "-noaudio";
+
 	printf ("%s (c)2010-2013 Mike Chambers\n", build);
 	printf ("[A portable, open-source 8086 PC emulator]\n\n");
 
-	parsecl (argc, argv);
+	parsecl (3, args);
 
 	memset (readonly, 0, 0x100000);
 	biossize = loadbios (biosfile);
 	if (!biossize) return (-1);
 #ifdef DISK_CONTROLLER_ATA
-	if (!loadrom (0xD0000UL, PATH_DATAFILES "ide_xt.bin", 1) ) return (-1);
+	if (!loadrom (0xD0000UL, "/3ds/fake86/data/ide_xt.bin", 1) ) return (-1);
 #endif
 	if (biossize <= 8192) {
-		loadrom (0xF6000UL, PATH_DATAFILES "rombasic.bin", 0);
-		if (!loadrom (0xC0000UL, PATH_DATAFILES "videorom.bin", 1) ) return (-1);
+		loadrom (0xF6000UL, "/3ds/fake86/data/rombasic.bin", 0);
+		if (!loadrom (0xC0000UL, "/3ds/fake86/data/videorom.bin", 1) ) return (-1);
 	}
 	printf ("\nInitializing CPU... ");
 	running = 1;
 	reset86();
 	printf ("OK!\n");
 
-#ifndef _WIN32
-#ifndef __APPLE__
-	XInitThreads();
-#endif
-#endif
+	Touch_Init();
+	Touch_DrawOverlay();
+
 	inithardware();
 
 #ifdef _WIN32
@@ -275,19 +280,26 @@ int main (int argc, char *argv[]) {
 #ifdef _WIN32
 			_beginthread (runconsole, 0, NULL);
 #else
-			pthread_create (&consolethread, NULL, (void *) runconsole, NULL);
+			//pthread_create (&consolethread, NULL, (void *) runconsole, NULL);
 #endif
 		}
 
 #ifdef _WIN32
 			_beginthread (EmuThread, 0, NULL);
 #else
-			pthread_create (&emuthread, NULL, (void *) EmuThread, NULL);
+			s32 prio = 0;
+			svcGetThreadPriority(&prio, CUR_THREAD_HANDLE);
+			emuthread = threadCreate(EmuThread, NULL, STACKSIZE, 0x32, -2, false);
 #endif
 
-	lasttick = starttick = SDL_GetTicks();
+	lasttick = starttick = osGetTime();
 	while (running) {
+			Touch_Update();
+			hidScanInput();
 			handleinput();
+			u32 kDown = hidKeysDown();
+			if (kDown & KEY_SELECT)
+				running = false;
 #ifdef NETWORKING_ENABLED
 			if (ethif < 254) dispatch();
 #endif
@@ -297,7 +309,7 @@ int main (int argc, char *argv[]) {
 			usleep(1000);
 #endif
 	}
-	endtick = (SDL_GetTicks() - starttick) / 1000;
+	endtick = (osGetTime() - starttick) / 1000;
 	if (endtick == 0) endtick = 1; //avoid divide-by-zero exception in the code below, if ran for less than 1 second
 
 	killaudio();
@@ -309,6 +321,8 @@ int main (int argc, char *argv[]) {
 
 	printf ("\n%llu instructions executed in %llu seconds.\n", totalexec, endtick);
 	printf ("Average speed: %llu instructions/second.\n", totalexec / endtick);
+
+	gfxExit();
 
 #ifdef CPU_ADDR_MODE_CACHE
 	printf ("\n  Cached modregrm data access count: %llu\n", cached_access_count);

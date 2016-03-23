@@ -20,7 +20,7 @@
 /* parsecl.c: Fake86 command line parsing for runtime options. */
 
 #include "config.h"
-#include <SDL/SDL.h>
+//#include <SDL/SDL.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -131,7 +131,7 @@ void parsecl (int argc, char *argv[]) {
 	textbase = 0xB8000;
 	ethif = 254;
 	usefullscreen = 0;
-	biosfile = PATH_DATAFILES "pcxtbios.bin";
+	biosfile = "/3ds/fake86/data/pcxtbios.bin";
 	for (i=1; i<argc; i++) {
             if (strcmpi (argv[i], "-h") ==0) showhelp ();
             else if (strcmpi (argv[i], "-?") ==0) showhelp ();
@@ -203,7 +203,7 @@ void parsecl (int argc, char *argv[]) {
 			else if (strcmpi (argv[i], "-smooth") ==0) nosmooth = 0;
 			else if (strcmpi (argv[i], "-fps") ==0) renderbenchmark = 1;
 			else if (strcmpi (argv[i], "-nosound") ==0) doaudio = 0;
-			else if (strcmpi (argv[i], "-fullscreen") ==0) usefullscreen = SDL_FULLSCREEN;
+			else if (strcmpi (argv[i], "-fullscreen") ==0) usefullscreen = 1;
 			else if (strcmpi (argv[i], "-delay") ==0) framedelay = atol (argv[++i]);
 			else if (strcmpi (argv[i], "-console") ==0) useconsole = 1;
 			else if (strcmpi (argv[i], "-slowsys") ==0) slowsystem = 1;

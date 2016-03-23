@@ -21,7 +21,7 @@
    system timer interrupt, and to generate new audio output samples. */
 
 #include "config.h"
-#include <SDL/SDL.h>
+//#include <SDL/SDL.h>
 #include <stdint.h>
 #include <stdio.h>
 #ifdef _WIN32
